@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../core/supabase_service.dart';
 
 class SocialRepository {
@@ -36,6 +40,34 @@ class SocialRepository {
       if (imageUrl != null && imageUrl.trim().isNotEmpty)
         'image_url': imageUrl.trim(),
     });
+  }
+
+  Future<String> uploadPostImage({
+    required Uint8List bytes,
+    required String extension,
+  }) async {
+    final client = SupabaseService.client;
+    final user = SupabaseService.currentUser;
+    if (client == null || user == null) {
+      throw StateError('Debes iniciar sesión.');
+    }
+    final safeExtension = extension.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]'),
+      '',
+    );
+    final path =
+        '${user.id}/${DateTime.now().microsecondsSinceEpoch}.$safeExtension';
+    await client.storage
+        .from('post-media')
+        .uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: 'image/$safeExtension',
+            upsert: false,
+          ),
+        );
+    return client.storage.from('post-media').getPublicUrl(path);
   }
 
   Future<void> likePost(String postId) async {

@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'core/supabase_service.dart';
 import 'data/auth_service.dart';
@@ -114,6 +117,7 @@ class _AuthPageState extends State<AuthPage> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _name = TextEditingController();
+  final _username = TextEditingController();
   final _auth = const AuthService();
   bool _isSignUp = false;
   bool _busy = false;
@@ -124,6 +128,7 @@ class _AuthPageState extends State<AuthPage> {
     _email.dispose();
     _password.dispose();
     _name.dispose();
+    _username.dispose();
     super.dispose();
   }
 
@@ -173,6 +178,16 @@ class _AuthPageState extends State<AuthPage> {
                   const SizedBox(height: 24),
                   if (_isSignUp) ...[
                     TextField(
+                      controller: _username,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de usuario',
+                        hintText: 'ej: cloupbi_user',
+                        prefixIcon: Icon(Icons.alternate_email_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
                       controller: _name,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
@@ -186,8 +201,10 @@ class _AuthPageState extends State<AuthPage> {
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Correo electrónico',
+                    decoration: InputDecoration(
+                      labelText: _isSignUp
+                          ? 'Correo electrónico'
+                          : 'Usuario o correo electrónico',
                       prefixIcon: Icon(Icons.mail_outline_rounded),
                     ),
                   ),
@@ -259,14 +276,25 @@ class _AuthPageState extends State<AuthPage> {
   Future<void> _submit() async {
     final email = _email.text.trim();
     final password = _password.text;
-    if (email.isEmpty || password.length < 6) {
-      _show('Ingresá un correo y una contraseña de al menos 6 caracteres.');
+    final username = _username.text.trim().toLowerCase();
+    final identifier = _email.text.trim();
+    if (identifier.isEmpty ||
+        password.length < 6 ||
+        (_isSignUp &&
+            (username.length < 3 ||
+                !RegExp(r'^[a-z0-9_.]+$').hasMatch(username)))) {
+      _show(
+        _isSignUp
+            ? 'Usá un usuario de 3 caracteres o más, correo válido y contraseña de al menos 6 caracteres.'
+            : 'Ingresá tu usuario o correo y una contraseña de al menos 6 caracteres.',
+      );
       return;
     }
     setState(() => _busy = true);
     try {
       if (_isSignUp) {
         final response = await _auth.signUp(
+          username: username,
           email: email,
           password: password,
           displayName: _name.text,
@@ -275,7 +303,7 @@ class _AuthPageState extends State<AuthPage> {
           _show('Cuenta creada. Revisá tu correo para confirmar el acceso.');
         }
       } else {
-        await _auth.signIn(email: email, password: password);
+        await _auth.signIn(identifier: identifier, password: password);
       }
     } catch (error) {
       if (mounted) _show(_friendlyAuthError(error));
@@ -397,8 +425,8 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Future<void> _createPost(String body) async {
-    await _repository.createPost(body: body);
+  Future<void> _createPost(String body, String? imageUrl) async {
+    await _repository.createPost(body: body, imageUrl: imageUrl);
     await _loadFeed();
     if (mounted) setState(() => _selectedIndex = 0);
   }
@@ -482,7 +510,6 @@ class FeedPage extends StatelessWidget {
               ),
             ],
           ),
-          SliverToBoxAdapter(child: StoriesRow(onCreate: onCreate)),
           SliverToBoxAdapter(child: ComposerCard(onTap: onCreate)),
           if (loading)
             const SliverFillRemaining(
@@ -597,60 +624,6 @@ class BrandMark extends StatelessWidget {
       ],
     ),
   );
-}
-
-class StoriesRow extends StatelessWidget {
-  const StoriesRow({super.key, required this.onCreate});
-  final VoidCallback onCreate;
-  @override
-  Widget build(BuildContext context) {
-    const names = ['Tu historia', 'Sofia', 'Mateo', 'Valen', 'Nico'];
-    return SizedBox(
-      height: 112,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-        scrollDirection: Axis.horizontal,
-        itemCount: names.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 16),
-        itemBuilder: (context, index) {
-          final mine = index == 0;
-          return GestureDetector(
-            onTap: mine ? onCreate : () {},
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: mine
-                        ? null
-                        : const LinearGradient(
-                            colors: [Color(0xFFFF6B5F), Color(0xFF5C67F2)],
-                          ),
-                    color: mine ? const Color(0xFFE5E9F2) : null,
-                  ),
-                  child: const CircleAvatar(
-                    radius: 30,
-                    backgroundColor: Colors.white,
-                    child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  names[index],
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF40516D),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
 }
 
 class ComposerCard extends StatelessWidget {
@@ -1096,7 +1069,7 @@ class _PostAction extends StatelessWidget {
 
 class CreatePage extends StatefulWidget {
   const CreatePage({super.key, required this.onPostCreated});
-  final Future<void> Function(String body) onPostCreated;
+  final Future<void> Function(String body, String? imageUrl) onPostCreated;
 
   @override
   State<CreatePage> createState() => _CreatePageState();
@@ -1104,6 +1077,8 @@ class CreatePage extends StatefulWidget {
 
 class _CreatePageState extends State<CreatePage> {
   final _controller = TextEditingController();
+  final _picker = ImagePicker();
+  XFile? _selectedImage;
   bool _busy = false;
 
   @override
@@ -1160,30 +1135,43 @@ class _CreatePageState extends State<CreatePage> {
               fillColor: Colors.white,
             ),
           ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              children: [
-                Icon(
-                  Icons.add_photo_alternate_outlined,
-                  color: Color(0xFF5C67F2),
+          if (_selectedImage != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.file(
+                  File(_selectedImage!.path),
+                  height: 180,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Las fotos se conectarán en la próxima etapa',
+              ),
+            ),
+          GestureDetector(
+            onTap: _pickImage,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.add_photo_alternate_outlined,
+                    color: Color(0xFF5C67F2),
+                  ),
+                  SizedBox(width: 12),
+                  Text(
+                    'Agregar una foto desde tu dispositivo',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF53627A),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -1198,8 +1186,19 @@ class _CreatePageState extends State<CreatePage> {
     }
     setState(() => _busy = true);
     try {
-      await widget.onPostCreated(_controller.text);
+      String? imageUrl;
+      if (_selectedImage != null) {
+        final bytes = await _selectedImage!.readAsBytes();
+        final name = _selectedImage!.name;
+        final extension = name.contains('.') ? name.split('.').last : 'jpg';
+        imageUrl = await const SocialRepository().uploadPostImage(
+          bytes: bytes,
+          extension: extension,
+        );
+      }
+      await widget.onPostCreated(_controller.text, imageUrl);
       _controller.clear();
+      if (mounted) setState(() => _selectedImage = null);
     } catch (_) {
       if (mounted) _show('No pudimos publicar. Revisá tu sesión.');
     } finally {
@@ -1210,6 +1209,14 @@ class _CreatePageState extends State<CreatePage> {
   void _show(String message) =>
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
+
+  Future<void> _pickImage() async {
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (mounted && image != null) setState(() => _selectedImage = image);
+  }
 }
 
 class DiscoverPage extends StatefulWidget {
@@ -1264,36 +1271,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Tendencias para ti',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF172943),
-                ),
+                'Busca personas reales de CloUP BI',
+                style: TextStyle(color: Color(0xFF7B8AA1)),
               ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children:
-                    [
-                          '#viajes',
-                          '#fotografia',
-                          '#musica',
-                          '#creadores',
-                          '#cocina',
-                          '#diseño',
-                        ]
-                        .map(
-                          (tag) => Chip(
-                            label: Text(tag),
-                            backgroundColor: Colors.white,
-                            side: BorderSide.none,
-                          ),
-                        )
-                        .toList(),
-              ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 20),
               if (_loading)
                 const Center(
                   child: CircularProgressIndicator(color: Color(0xFFFF6B5F)),

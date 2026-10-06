@@ -12,6 +12,7 @@ class AuthService {
   }
 
   Future<AuthResponse> signUp({
+    required String username,
     required String email,
     required String password,
     String? displayName,
@@ -22,6 +23,7 @@ class AuthService {
       email: email.trim(),
       password: password,
       data: {
+        'username': username.trim().toLowerCase(),
         if (displayName != null && displayName.trim().isNotEmpty)
           'display_name': displayName.trim(),
       },
@@ -29,15 +31,23 @@ class AuthService {
   }
 
   Future<AuthResponse> signIn({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     final client = SupabaseService.client;
     if (client == null) throw StateError('Supabase no está configurado.');
-    return client.auth.signInWithPassword(
-      email: email.trim(),
-      password: password,
-    );
+    var email = identifier.trim();
+    if (!email.contains('@')) {
+      final resolved = await client.rpc<String?>(
+        'resolve_login_email',
+        params: {'identifier': email},
+      );
+      if (resolved == null || resolved.isEmpty) {
+        throw const AuthException('Invalid login credentials');
+      }
+      email = resolved;
+    }
+    return client.auth.signInWithPassword(email: email, password: password);
   }
 
   Future<void> signOut() async {
