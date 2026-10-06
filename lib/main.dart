@@ -324,6 +324,7 @@ class _AuthPageState extends State<AuthPage> {
 
   String _friendlyAuthError(Object error) {
     final message = error.toString();
+    final normalizedMessage = message.toLowerCase();
     if (message.contains('username_taken')) {
       return 'Ese nombre de usuario ya existe o no cumple el formato permitido.';
     }
@@ -333,9 +334,10 @@ class _AuthPageState extends State<AuthPage> {
     if (message.contains('Invalid login credentials')) {
       return 'Correo o contraseña incorrectos.';
     }
-    if (message.contains('already registered') ||
-        message.contains('User already registered')) {
-      return 'Ese correo ya está registrado.';
+    if (normalizedMessage.contains('already registered') ||
+        normalizedMessage.contains('user_already_exists') ||
+        normalizedMessage.contains('email_exists')) {
+      return 'Ese correo ya está registrado. Elegí “Ya tengo una cuenta” e ingresá con ese correo o usuario.';
     }
     if (message.contains('Database error saving new user')) {
       return 'No se pudo crear el perfil. Probá con otro nombre de usuario.';
