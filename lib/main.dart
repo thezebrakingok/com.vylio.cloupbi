@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'core/supabase_service.dart';
+import 'data/auth_service.dart';
+import 'data/social_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,8 +15,6 @@ class CloUpBiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const ink = Color(0xFF10233F);
-    const coral = Color(0xFFFF6B5F);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'CloUP BI',
@@ -22,32 +22,282 @@ class CloUpBiApp extends StatelessWidget {
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF7F8FC),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: coral,
+          seedColor: const Color(0xFFFF6B5F),
           brightness: Brightness.light,
-          primary: coral,
+          primary: const Color(0xFFFF6B5F),
           secondary: const Color(0xFF5C67F2),
           surface: Colors.white,
-        ),
-        fontFamily: 'sans',
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFFF7F8FC),
-          foregroundColor: ink,
-          elevation: 0,
-          centerTitle: false,
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(18)),
+            borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide.none,
           ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 14,
+          ),
         ),
       ),
-      home: const HomeShell(),
+      home: const AuthGate(),
     );
   }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!SupabaseConfigReady.isConfigured) {
+      return const ConfigurationNotice();
+    }
+    return StreamBuilder(
+      stream: const AuthService().authStateChanges,
+      builder: (context, snapshot) {
+        if (SupabaseService.currentUser == null) return const AuthPage();
+        return const HomeShell();
+      },
+    );
+  }
+}
+
+class SupabaseConfigReady {
+  const SupabaseConfigReady._();
+  static bool get isConfigured => SupabaseService.client != null;
+}
+
+class ConfigurationNotice extends StatelessWidget {
+  const ConfigurationNotice({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const BrandMark(),
+            const SizedBox(height: 24),
+            const Text(
+              'Falta configurar Supabase',
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF172943),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Compilá la app usando --dart-define-from-file con tus variables locales.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF6F7E94)),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class AuthPage extends StatefulWidget {
+  const AuthPage({super.key});
+
+  @override
+  State<AuthPage> createState() => _AuthPageState();
+}
+
+class _AuthPageState extends State<AuthPage> {
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  final _name = TextEditingController();
+  final _auth = const AuthService();
+  bool _isSignUp = false;
+  bool _busy = false;
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(28, 50, 28, 28),
+          children: [
+            const BrandMark(),
+            const SizedBox(height: 42),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x0D10233F),
+                    blurRadius: 26,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isSignUp ? 'Crea tu cuenta' : 'Bienvenido de nuevo',
+                    style: const TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF172943),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isSignUp
+                        ? 'Únete a la comunidad que comparte lo que la inspira.'
+                        : 'Entrá para ver las novedades de tu comunidad.',
+                    style: const TextStyle(
+                      color: Color(0xFF7B8AA1),
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_isSignUp) ...[
+                    TextField(
+                      controller: _name,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre visible',
+                        prefixIcon: Icon(Icons.person_outline_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  TextField(
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Correo electrónico',
+                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _password,
+                    obscureText: _obscure,
+                    onSubmitted: (_) => _submit(),
+                    decoration: InputDecoration(
+                      labelText: 'Contraseña',
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                      suffixIcon: IconButton(
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                        icon: Icon(
+                          _obscure
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B5F),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(_isSignUp ? 'Crear cuenta' : 'Iniciar sesión'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() => _isSignUp = !_isSignUp),
+                      child: Text(
+                        _isSignUp ? 'Ya tengo una cuenta' : 'Crear una cuenta',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Tus datos se protegen con autenticación y políticas RLS de Supabase.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Color(0xFF9AA5B5)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final email = _email.text.trim();
+    final password = _password.text;
+    if (email.isEmpty || password.length < 6) {
+      _show('Ingresá un correo y una contraseña de al menos 6 caracteres.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      if (_isSignUp) {
+        final response = await _auth.signUp(
+          email: email,
+          password: password,
+          displayName: _name.text,
+        );
+        if (mounted && response.session == null) {
+          _show('Cuenta creada. Revisá tu correo para confirmar el acceso.');
+        }
+      } else {
+        await _auth.signIn(email: email, password: password);
+      }
+    } catch (error) {
+      if (mounted) _show(_friendlyAuthError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _friendlyAuthError(Object error) {
+    final message = error.toString();
+    if (message.contains('Invalid login credentials')) {
+      return 'Correo o contraseña incorrectos.';
+    }
+    if (message.contains('already registered')) {
+      return 'Ese correo ya está registrado.';
+    }
+    return 'No pudimos completar la operación. Revisá tu conexión e intentá de nuevo.';
+  }
+
+  void _show(String message) =>
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
 }
 
 class HomeShell extends StatefulWidget {
@@ -58,49 +308,34 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  final _repository = const SocialRepository();
   int _selectedIndex = 0;
-  final List<Post> _posts = [
-    Post(
-      id: 1,
-      author: 'Sofia Mendes',
-      handle: '@sofimendes',
-      time: '12 min',
-      avatar: 'https://i.pravatar.cc/150?img=47',
-      image: 'https://images.unsplash.com/photo-1500534623283-312aade485b7?w=1200&q=80',
-      text: 'A veces la mejor parte del viaje es descubrir una esquina que no estaba en el mapa.',
-      likes: 248,
-      comments: 24,
-      tag: '#viajes',
-    ),
-    Post(
-      id: 2,
-      author: 'Nico Rojas',
-      handle: '@nico.rojas',
-      time: '1 h',
-      avatar: 'https://i.pravatar.cc/150?img=12',
-      image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&q=80',
-      text: 'Nuevo espacio, nuevas ideas. ¿Qué están creando hoy?',
-      likes: 96,
-      comments: 11,
-      tag: '#creadores',
-    ),
-  ];
+  bool _loading = true;
+  String? _error;
+  List<Post> _posts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFeed();
+  }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       FeedPage(
         posts: _posts,
+        loading: _loading,
+        error: _error,
+        onRefresh: _loadFeed,
         onLike: _toggleLike,
-        onSave: _toggleSave,
-        onCreate: _openComposer,
+        onCreate: () => setState(() => _selectedIndex = 2),
       ),
       const DiscoverPage(),
-      CreatePage(onPostCreated: _addPost),
+      CreatePage(onPostCreated: _createPost),
       const NotificationsPage(),
-      const ProfilePage(),
+      ProfilePage(onSignOut: () => const AuthService().signOut()),
     ];
-
     return Scaffold(
       body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: NavigationBar(
@@ -109,7 +344,6 @@ class _HomeShellState extends State<HomeShell> {
             setState(() => _selectedIndex = index),
         backgroundColor: Colors.white,
         indicatorColor: const Color(0xFFFFE1DE),
-        height: 74,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -141,44 +375,55 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  void _toggleLike(int id) {
+  Future<void> _loadFeed() async {
     setState(() {
-      final post = _posts.firstWhere((item) => item.id == id);
-      post.liked = !post.liked;
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await _repository.fetchFeed();
+      if (!mounted) return;
+      setState(() {
+        _posts = rows.map(Post.fromMap).toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'No pudimos cargar el feed. Intentá actualizar de nuevo.';
+      });
+    }
+  }
+
+  Future<void> _createPost(String body) async {
+    await _repository.createPost(body: body);
+    await _loadFeed();
+    if (mounted) setState(() => _selectedIndex = 0);
+  }
+
+  Future<void> _toggleLike(Post post) async {
+    final oldValue = post.liked;
+    setState(() {
+      post.liked = !oldValue;
       post.likes += post.liked ? 1 : -1;
     });
-  }
-
-  void _toggleSave(int id) {
-    setState(() {
-      final post = _posts.firstWhere((item) => item.id == id);
-      post.saved = !post.saved;
-    });
-  }
-
-  void _addPost(String text) {
-    if (text.trim().isEmpty) return;
-    setState(() {
-      _posts.insert(
-        0,
-        Post(
-          id: DateTime.now().millisecondsSinceEpoch,
-          author: 'Alex Vylio',
-          handle: '@alexvylio',
-          time: 'ahora',
-          avatar: 'https://i.pravatar.cc/150?img=68',
-          text: text.trim(),
-          likes: 0,
-          comments: 0,
-          tag: '#mipost',
-        ),
+    try {
+      if (post.liked) {
+        await _repository.likePost(post.id);
+      } else {
+        await _repository.unlikePost(post.id);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        post.liked = oldValue;
+        post.likes += oldValue ? 1 : -1;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No pudimos actualizar el like.')),
       );
-      _selectedIndex = 0;
-    });
-  }
-
-  void _openComposer() {
-    setState(() => _selectedIndex = 2);
+    }
   }
 }
 
@@ -186,176 +431,198 @@ class FeedPage extends StatelessWidget {
   const FeedPage({
     super.key,
     required this.posts,
+    required this.loading,
+    required this.error,
+    required this.onRefresh,
     required this.onLike,
-    required this.onSave,
     required this.onCreate,
   });
-
   final List<Post> posts;
-  final void Function(int id) onLike;
-  final void Function(int id) onSave;
+  final bool loading;
+  final String? error;
+  final Future<void> Function() onRefresh;
+  final Future<void> Function(Post post) onLike;
   final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          pinned: true,
-          backgroundColor: const Color(0xFFF7F8FC),
-          surfaceTintColor: const Color(0xFFF7F8FC),
-          titleSpacing: 20,
-          title: const BrandMark(),
-          actions: [
-            IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.search_rounded),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  IconButton(
-                    onPressed: () {},
-                    icon: const Icon(Icons.mail_outline_rounded),
-                  ),
-                  Positioned(
-                    right: 5,
-                    top: 8,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFF6B5F),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ],
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverAppBar(
+            pinned: true,
+            backgroundColor: const Color(0xFFF7F8FC),
+            titleSpacing: 20,
+            title: const BrandMark(),
+            actions: [
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.search_rounded),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: IconButton(
+                  onPressed: () {},
+                  icon: const Icon(Icons.mail_outline_rounded),
+                ),
+              ),
+            ],
+          ),
+          SliverToBoxAdapter(child: StoriesRow(onCreate: onCreate)),
+          SliverToBoxAdapter(child: ComposerCard(onTap: onCreate)),
+          if (loading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: CircularProgressIndicator(color: Color(0xFFFF6B5F)),
               ),
             ),
-          ],
-        ),
-        SliverToBoxAdapter(child: StoriesRow(onCreate: onCreate)),
-        SliverToBoxAdapter(child: ComposerCard(onTap: onCreate)),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          sliver: SliverList.builder(
-            itemCount: posts.length,
-            itemBuilder: (context, index) =>
-                PostCard(post: posts[index], onLike: onLike, onSave: onSave),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class BrandMark extends StatelessWidget {
-  const BrandMark({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return RichText(
-      text: const TextSpan(
-        style: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF10233F),
-          letterSpacing: -1,
-        ),
-        children: [
-          TextSpan(text: 'CloUP'),
-          TextSpan(
-            text: ' BI',
-            style: TextStyle(color: Color(0xFFFF6B5F)),
-          ),
+          if (!loading && error != null)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: EmptyState(
+                icon: Icons.cloud_off_rounded,
+                title: 'Sin conexión al feed',
+                message: error!,
+                actionLabel: 'Reintentar',
+                onAction: onRefresh,
+              ),
+            ),
+          if (!loading && error == null && posts.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: EmptyState(
+                icon: Icons.forum_outlined,
+                title: 'Todavía no hay publicaciones',
+                message:
+                    'Sé la primera persona en compartir algo con la comunidad.',
+              ),
+            ),
+          if (!loading && error == null && posts.isNotEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              sliver: SliverList.builder(
+                itemCount: posts.length,
+                itemBuilder: (context, index) =>
+                    PostCard(post: posts[index], onLike: onLike),
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
+class EmptyState extends StatelessWidget {
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(32),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 48, color: const Color(0xFF9AA5B5)),
+        const SizedBox(height: 14),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF172943),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          style: const TextStyle(color: Color(0xFF7B8AA1), height: 1.4),
+          textAlign: TextAlign.center,
+        ),
+        if (actionLabel != null) ...[
+          const SizedBox(height: 18),
+          OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
+        ],
+      ],
+    ),
+  );
+}
+
+class BrandMark extends StatelessWidget {
+  const BrandMark({super.key});
+  @override
+  Widget build(BuildContext context) => RichText(
+    text: const TextSpan(
+      style: TextStyle(
+        fontSize: 24,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF10233F),
+        letterSpacing: -1,
+      ),
+      children: [
+        TextSpan(text: 'CloUP'),
+        TextSpan(
+          text: ' BI',
+          style: TextStyle(color: Color(0xFFFF6B5F)),
+        ),
+      ],
+    ),
+  );
+}
+
 class StoriesRow extends StatelessWidget {
   const StoriesRow({super.key, required this.onCreate});
   final VoidCallback onCreate;
-
-  final List<Story> stories = const [
-    Story('Tu historia', 'https://i.pravatar.cc/150?img=68', true),
-    Story('Sofia', 'https://i.pravatar.cc/150?img=47', false),
-    Story('Mateo', 'https://i.pravatar.cc/150?img=11', false),
-    Story('Valen', 'https://i.pravatar.cc/150?img=32', false),
-    Story('Nico', 'https://i.pravatar.cc/150?img=12', false),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    const names = ['Tu historia', 'Sofia', 'Mateo', 'Valen', 'Nico'];
     return SizedBox(
-      height: 118,
+      height: 112,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         scrollDirection: Axis.horizontal,
-        itemCount: stories.length,
+        itemCount: names.length,
         separatorBuilder: (_, _) => const SizedBox(width: 16),
         itemBuilder: (context, index) {
-          final story = stories[index];
+          final mine = index == 0;
           return GestureDetector(
-            onTap: story.isMine
-                ? onCreate
-                : () => _showStory(context, story.name),
+            onTap: mine ? onCreate : () {},
             child: Column(
               children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: story.isMine
-                            ? null
-                            : const LinearGradient(
-                                colors: [Color(0xFFFF6B5F), Color(0xFF5C67F2)],
-                              ),
-                        color: story.isMine ? const Color(0xFFE5E9F2) : null,
-                      ),
-                      child: CircleAvatar(
-                        radius: 31,
-                        backgroundColor: Colors.white,
-                        child: const Icon(
-                          Icons.person_rounded,
-                          color: Color(0xFF8290A8),
-                        ),
-                      ),
-                    ),
-                    if (story.isMine)
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 23,
-                          height: 23,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF6B5F),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: const Color(0xFFF7F8FC),
-                              width: 3,
-                            ),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: mine
+                        ? null
+                        : const LinearGradient(
+                            colors: [Color(0xFFFF6B5F), Color(0xFF5C67F2)],
                           ),
-                          child: const Icon(
-                            Icons.add,
-                            color: Colors.white,
-                            size: 15,
-                          ),
-                        ),
-                      ),
-                  ],
+                    color: mine ? const Color(0xFFE5E9F2) : null,
+                  ),
+                  child: const CircleAvatar(
+                    radius: 30,
+                    backgroundColor: Colors.white,
+                    child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  story.name,
+                  names[index],
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -369,17 +636,11 @@ class StoriesRow extends StatelessWidget {
       ),
     );
   }
-
-  void _showStory(BuildContext context, String name) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Abriendo la historia de $name')));
-  }
 }
 
 class ComposerCard extends StatelessWidget {
   const ComposerCard({super.key, required this.onTap});
   final VoidCallback onTap;
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -407,7 +668,7 @@ class ComposerCard extends StatelessWidget {
             child: GestureDetector(
               onTap: onTap,
               child: const Text(
-                '¿Qué estás pensando, Alex?',
+                '¿Qué estás pensando?',
                 style: TextStyle(color: Color(0xFF8290A8), fontSize: 14),
               ),
             ),
@@ -423,15 +684,9 @@ class ComposerCard extends StatelessWidget {
 }
 
 class PostCard extends StatelessWidget {
-  const PostCard({
-    super.key,
-    required this.post,
-    required this.onLike,
-    required this.onSave,
-  });
+  const PostCard({super.key, required this.post, required this.onLike});
   final Post post;
-  final void Function(int id) onLike;
-  final void Function(int id) onSave;
+  final Future<void> Function(Post post) onLike;
 
   @override
   Widget build(BuildContext context) {
@@ -473,7 +728,7 @@ class PostCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${post.handle} · ${post.time}',
+                        '@${post.handle} · ${post.time}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF8B98AD),
@@ -503,12 +758,11 @@ class PostCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 8),
           if (post.image != null)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
                 child: AspectRatio(
                   aspectRatio: 1.55,
                   child: Image.network(
@@ -518,7 +772,6 @@ class PostCard extends StatelessWidget {
                       color: Color(0xFFEAEFFC),
                       child: Icon(
                         Icons.image_not_supported_outlined,
-                        size: 42,
                         color: Color(0xFF8290A8),
                       ),
                     ),
@@ -531,7 +784,7 @@ class PostCard extends StatelessWidget {
             child: Row(
               children: [
                 Text(
-                  post.tag,
+                  post.tag ?? '',
                   style: const TextStyle(
                     color: Color(0xFF5C67F2),
                     fontWeight: FontWeight.w700,
@@ -541,14 +794,6 @@ class PostCard extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '${post.likes} me gusta',
-                  style: const TextStyle(
-                    color: Color(0xFF8B98AD),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${post.comments} comentarios',
                   style: const TextStyle(
                     color: Color(0xFF8B98AD),
                     fontSize: 12,
@@ -574,31 +819,25 @@ class PostCard extends StatelessWidget {
                         : Icons.favorite_border_rounded,
                     label: 'Me gusta',
                     active: post.liked,
-                    onTap: () => onLike(post.id),
+                    onTap: () => onLike(post),
                   ),
                 ),
                 Expanded(
                   child: _PostAction(
                     icon: Icons.mode_comment_outlined,
                     label: 'Comentar',
-                    onTap: () => _feedback(context, 'Comentarios próximamente'),
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Comentarios próximamente')),
+                    ),
                   ),
                 ),
                 Expanded(
                   child: _PostAction(
                     icon: Icons.send_outlined,
                     label: 'Compartir',
-                    onTap: () => _feedback(context, 'Listo para compartir'),
-                  ),
-                ),
-                Expanded(
-                  child: _PostAction(
-                    icon: post.saved
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded,
-                    label: 'Guardar',
-                    active: post.saved,
-                    onTap: () => onSave(post.id),
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Compartir próximamente')),
+                    ),
                   ),
                 ),
               ],
@@ -608,10 +847,6 @@ class PostCard extends StatelessWidget {
       ),
     );
   }
-
-  void _feedback(BuildContext context, String message) =>
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
 }
 
 class _PostAction extends StatelessWidget {
@@ -625,7 +860,6 @@ class _PostAction extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool active;
-
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
@@ -654,160 +888,9 @@ class _PostAction extends StatelessWidget {
   );
 }
 
-class DiscoverPage extends StatelessWidget {
-  const DiscoverPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
-        const SliverAppBar(
-          pinned: true,
-          title: Text(
-            'Descubrir',
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
-            child: TextField(
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search_rounded),
-                hintText: 'Busca personas, temas o lugares',
-              ),
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Tendencias para ti',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF172943),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children:
-                      [
-                            '#viajes',
-                            '#fotografia',
-                            '#musica',
-                            '#creadores',
-                            '#cocina',
-                            '#diseño',
-                          ]
-                          .map(
-                            (tag) => Chip(
-                              label: Text(tag),
-                              backgroundColor: Colors.white,
-                              side: BorderSide.none,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 5,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                ),
-                const SizedBox(height: 28),
-                const Text(
-                  'Personas que podrías seguir',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF172943),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const FollowCard(
-                  name: 'Lucía Ferrer',
-                  handle: '@luciaf',
-                  avatar: 'https://i.pravatar.cc/150?img=44',
-                ),
-                const FollowCard(
-                  name: 'Tomás Paz',
-                  handle: '@tomas.paz',
-                  avatar: 'https://i.pravatar.cc/150?img=13',
-                ),
-                const FollowCard(
-                  name: 'Mia Soler',
-                  handle: '@miasoler',
-                  avatar: 'https://i.pravatar.cc/150?img=49',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class FollowCard extends StatelessWidget {
-  const FollowCard({
-    super.key,
-    required this.name,
-    required this.handle,
-    required this.avatar,
-  });
-  final String name;
-  final String handle;
-  final String avatar;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                Text(
-                  handle,
-                  style: const TextStyle(
-                    color: Color(0xFF8B98AD),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          OutlinedButton(
-            onPressed: () => ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text('Ahora sigues a $name'))),
-            child: const Text('Seguir'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class CreatePage extends StatefulWidget {
   const CreatePage({super.key, required this.onPostCreated});
-  final void Function(String text) onPostCreated;
+  final Future<void> Function(String body) onPostCreated;
 
   @override
   State<CreatePage> createState() => _CreatePageState();
@@ -815,6 +898,13 @@ class CreatePage extends StatefulWidget {
 
 class _CreatePageState extends State<CreatePage> {
   final _controller = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -828,7 +918,7 @@ class _CreatePageState extends State<CreatePage> {
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: FilledButton(
-              onPressed: _publish,
+              onPressed: _busy ? null : _publish,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFFF6B5F),
               ),
@@ -840,36 +930,16 @@ class _CreatePageState extends State<CreatePage> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Row(
+          const Row(
             children: [
-              const CircleAvatar(
+              CircleAvatar(
                 radius: 24,
                 child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
               ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Alex Vylio',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEDEFFF),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Público',
-                      style: TextStyle(fontSize: 11, color: Color(0xFF5C67F2)),
-                    ),
-                  ),
-                ],
+              SizedBox(width: 12),
+              Text(
+                'Publicación pública',
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ],
           ),
@@ -891,32 +961,21 @@ class _CreatePageState extends State<CreatePage> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Column(
+            child: const Row(
               children: [
-                const Row(
-                  children: [
-                    Icon(
-                      Icons.add_photo_alternate_outlined,
-                      color: Color(0xFF5C67F2),
-                    ),
-                    SizedBox(width: 12),
-                    Text(
-                      'Añadir a tu publicación',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ],
+                Icon(
+                  Icons.add_photo_alternate_outlined,
+                  color: Color(0xFF5C67F2),
                 ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    _CreateOption(icon: Icons.image_outlined, text: 'Foto'),
-                    _CreateOption(icon: Icons.videocam_outlined, text: 'Video'),
-                    _CreateOption(
-                      icon: Icons.location_on_outlined,
-                      text: 'Lugar',
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Las fotos se conectarán en la próxima etapa',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF53627A),
                     ),
-                    _CreateOption(icon: Icons.tag_rounded, text: 'Tema'),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -926,168 +985,118 @@ class _CreatePageState extends State<CreatePage> {
     );
   }
 
-  void _publish() {
+  Future<void> _publish() async {
     if (_controller.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Escribe algo antes de publicar')),
-      );
+      _show('Escribe algo antes de publicar');
       return;
     }
-    widget.onPostCreated(_controller.text);
-    _controller.clear();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Publicación compartida en CloUP BI')),
-    );
+    setState(() => _busy = true);
+    try {
+      await widget.onPostCreated(_controller.text);
+      _controller.clear();
+    } catch (_) {
+      if (mounted) _show('No pudimos publicar. Revisá tu sesión.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
+
+  void _show(String message) =>
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
 }
 
-class _CreateOption extends StatelessWidget {
-  const _CreateOption({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Column(
-      children: [
-        Icon(icon, color: const Color(0xFF7B8AA1)),
-        const SizedBox(height: 5),
-        Text(
-          text,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF7B8AA1)),
-        ),
-      ],
-    ),
-  );
-}
-
-class NotificationsPage extends StatelessWidget {
-  const NotificationsPage({super.key});
+class DiscoverPage extends StatelessWidget {
+  const DiscoverPage({super.key});
   @override
   Widget build(BuildContext context) => CustomScrollView(
     slivers: [
       const SliverAppBar(
         pinned: true,
-        title: Text(
-          'Notificaciones',
-          style: TextStyle(fontWeight: FontWeight.w800),
+        title: Text('Descubrir', style: TextStyle(fontWeight: FontWeight.w800)),
+      ),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+          child: TextField(
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search_rounded),
+              hintText: 'Busca personas, temas o lugares',
+            ),
+          ),
         ),
       ),
       SliverPadding(
-        padding: const EdgeInsets.all(16),
-        sliver: SliverList.list(
-          children: const [
-            NotificationTile(
-              name: 'Sofia Mendes',
-              text: 'le dio me gusta a tu publicación',
-              time: 'Hace 4 min',
-              avatar: 'https://i.pravatar.cc/150?img=47',
-              icon: Icons.favorite_rounded,
-              color: Color(0xFFFF6B5F),
-            ),
-            NotificationTile(
-              name: 'Nico Rojas',
-              text: 'comenzó a seguirte',
-              time: 'Hace 32 min',
-              avatar: 'https://i.pravatar.cc/150?img=12',
-              icon: Icons.person_add_alt_1_rounded,
-              color: Color(0xFF5C67F2),
-            ),
-            NotificationTile(
-              name: 'Valen Cruz',
-              text: 'comentó: ¡Qué buen lugar!',
-              time: 'Ayer',
-              avatar: 'https://i.pravatar.cc/150?img=32',
-              icon: Icons.mode_comment_rounded,
-              color: Color(0xFFFFB04A),
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Tendencias para ti',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF172943),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children:
+                    [
+                          '#viajes',
+                          '#fotografia',
+                          '#musica',
+                          '#creadores',
+                          '#cocina',
+                          '#diseño',
+                        ]
+                        .map(
+                          (tag) => Chip(
+                            label: Text(tag),
+                            backgroundColor: Colors.white,
+                            side: BorderSide.none,
+                          ),
+                        )
+                        .toList(),
+              ),
+              const SizedBox(height: 28),
+              const Text(
+                'La búsqueda y las sugerencias se conectarán al feed real.',
+                style: TextStyle(color: Color(0xFF7B8AA1)),
+              ),
+            ],
+          ),
         ),
       ),
     ],
   );
 }
 
-class NotificationTile extends StatelessWidget {
-  const NotificationTile({
-    super.key,
-    required this.name,
-    required this.text,
-    required this.time,
-    required this.avatar,
-    required this.icon,
-    required this.color,
-  });
-  final String name, text, time, avatar;
-  final IconData icon;
-  final Color color;
+class NotificationsPage extends StatelessWidget {
+  const NotificationsPage({super.key});
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+  Widget build(BuildContext context) => const Scaffold(
+    body: Center(
+      child: EmptyState(
+        icon: Icons.notifications_none_rounded,
+        title: 'Notificaciones',
+        message: 'Las interacciones aparecerán aquí cuando haya actividad en tu cuenta.',
       ),
-      child: Row(
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const CircleAvatar(
-                radius: 24,
-                child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
-              ),
-              Positioned(
-                right: -2,
-                bottom: -2,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: Icon(icon, size: 11, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: RichText(
-              text: TextSpan(
-                style: const TextStyle(color: Color(0xFF53627A), height: 1.35),
-                children: [
-                  TextSpan(
-                    text: name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF172943),
-                    ),
-                  ),
-                  TextSpan(text: ' $text\n'),
-                  TextSpan(
-                    text: time,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF9AA5B5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    ),
+  );
 }
 
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, required this.onSignOut});
+  final Future<void> Function() onSignOut;
+
   @override
   Widget build(BuildContext context) {
+    final user = SupabaseService.currentUser;
+    final displayName = user?.userMetadata?['display_name'] as String?;
     return CustomScrollView(
       slivers: [
         SliverAppBar(
@@ -1098,14 +1107,14 @@ class ProfilePage extends StatelessWidget {
           ),
           actions: [
             IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.settings_outlined),
+              onPressed: onSignOut,
+              icon: const Icon(Icons.logout_rounded),
             ),
           ],
         ),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
             child: Column(
               children: [
                 const CircleAvatar(
@@ -1117,33 +1126,18 @@ class ProfilePage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Alex Vylio',
-                  style: TextStyle(
+                Text(
+                  displayName?.isNotEmpty == true ? displayName! : 'CloUP BI',
+                  style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF172943),
                   ),
                 ),
-                const SizedBox(height: 3),
-                const Text(
-                  '@alexvylio',
-                  style: TextStyle(color: Color(0xFF8B98AD)),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Creando momentos, compartiendo ideas y descubriendo lo que nos conecta.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF53627A), height: 1.35),
-                ),
-                const SizedBox(height: 20),
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _Stat(number: '128', label: 'Publicaciones'),
-                    _Stat(number: '2.4k', label: 'Seguidores'),
-                    _Stat(number: '386', label: 'Siguiendo'),
-                  ],
+                const SizedBox(height: 4),
+                Text(
+                  user?.email ?? '',
+                  style: const TextStyle(color: Color(0xFF8B98AD)),
                 ),
                 const SizedBox(height: 20),
                 SizedBox(
@@ -1157,76 +1151,9 @@ class ProfilePage extends StatelessWidget {
             ),
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-          sliver: SliverGrid.count(
-            crossAxisCount: 3,
-            mainAxisSpacing: 5,
-            crossAxisSpacing: 5,
-            children: const [
-              _GridPhoto(
-                url: 'https://images.unsplash.com/photo-1500534623283-312aade485b7?w=500&q=70',
-              ),
-              _GridPhoto(
-                url: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=500&q=70',
-              ),
-              _GridPhoto(
-                url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=500&q=70',
-              ),
-              _GridPhoto(
-                url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&q=70',
-              ),
-              _GridPhoto(
-                url: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=500&q=70',
-              ),
-              _GridPhoto(
-                url: 'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=500&q=70',
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.number, required this.label});
-  final String number, label;
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          number,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF172943),
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF8B98AD)),
-        ),
-      ],
-    );
-  }
-}
-
-class _GridPhoto extends StatelessWidget {
-  const _GridPhoto({required this.url});
-  final String url;
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(10),
-    child: Image.network(
-      url,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFEAEFFC)),
-    ),
-  );
 }
 
 class Post {
@@ -1235,23 +1162,50 @@ class Post {
     required this.author,
     required this.handle,
     required this.time,
-    required this.avatar,
     required this.text,
     required this.likes,
-    required this.comments,
-    required this.tag,
     this.image,
+    this.tag,
+    this.authorId,
   });
-  final int id;
-  final String author, handle, time, avatar, text, tag;
+  final String id;
+  final String author;
+  final String handle;
+  final String time;
+  final String text;
   final String? image;
-  int likes, comments;
+  final String? tag;
+  final String? authorId;
+  int likes;
   bool liked = false;
-  bool saved = false;
-}
 
-class Story {
-  const Story(this.name, this.avatar, this.isMine);
-  final String name, avatar;
-  final bool isMine;
+  factory Post.fromMap(Map<String, dynamic> map) {
+    final profile = map['profiles'] is Map<String, dynamic>
+        ? map['profiles'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final created = DateTime.tryParse(map['created_at']?.toString() ?? '')
+        ?.toLocal();
+    return Post(
+      id: map['id'].toString(),
+      author: (profile['display_name'] as String?)?.trim().isNotEmpty == true
+          ? profile['display_name'] as String
+          : (profile['username'] as String? ?? 'CloUP user'),
+      handle: profile['username'] as String? ?? 'usuario',
+      time: _relativeTime(created),
+      text: map['body']?.toString() ?? '',
+      likes: 0,
+      image: map['image_url'] as String?,
+      tag: map['tag'] as String?,
+      authorId: map['author_id'] as String?,
+    );
+  }
+
+  static String _relativeTime(DateTime? date) {
+    if (date == null) return 'ahora';
+    final difference = DateTime.now().difference(date);
+    if (difference.inMinutes < 1) return 'ahora';
+    if (difference.inHours < 1) return '${difference.inMinutes} min';
+    if (difference.inDays < 1) return '${difference.inHours} h';
+    return '${difference.inDays} d';
+  }
 }
