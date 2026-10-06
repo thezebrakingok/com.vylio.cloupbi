@@ -87,4 +87,85 @@ class SocialRepository {
         .eq('follower_id', user.id)
         .eq('following_id', profileId);
   }
+
+  Future<List<Map<String, dynamic>>> fetchComments(String postId) async {
+    final client = SupabaseService.client;
+    if (client == null) return const [];
+    final response = await client
+        .from('comments')
+        .select(
+          'id, body, created_at, author_id, profiles(username, display_name)',
+        )
+        .eq('post_id', postId)
+        .order('created_at');
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> addComment({
+    required String postId,
+    required String body,
+  }) async {
+    final client = SupabaseService.client;
+    final user = SupabaseService.currentUser;
+    if (client == null || user == null) {
+      throw StateError('Debes iniciar sesión.');
+    }
+    await client.from('comments').insert({
+      'post_id': postId,
+      'author_id': user.id,
+      'body': body.trim(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> searchProfiles(String query) async {
+    final client = SupabaseService.client;
+    if (client == null || query.trim().isEmpty) return const [];
+    final response = await client
+        .from('profiles')
+        .select('id, username, display_name, avatar_url')
+        .or(
+          'username.ilike.%${query.trim()}%,display_name.ilike.%${query.trim()}%',
+        )
+        .limit(20);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<bool> isFollowing(String profileId) async {
+    final client = SupabaseService.client;
+    final user = SupabaseService.currentUser;
+    if (client == null || user == null) return false;
+    final response = await client
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', user.id)
+        .eq('following_id', profileId)
+        .maybeSingle();
+    return response != null;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchNotifications() async {
+    final client = SupabaseService.client;
+    final user = SupabaseService.currentUser;
+    if (client == null || user == null) return const [];
+    final response = await client
+        .from('notifications')
+        .select(
+          'id, kind, created_at, read_at, actor_id, profiles:actor_id(username, display_name)',
+        )
+        .eq('recipient_id', user.id)
+        .order('created_at', ascending: false)
+        .limit(30);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> markNotificationsRead() async {
+    final client = SupabaseService.client;
+    final user = SupabaseService.currentUser;
+    if (client == null || user == null) return;
+    await client
+        .from('notifications')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('recipient_id', user.id)
+        .isFilter('read_at', null);
+  }
 }

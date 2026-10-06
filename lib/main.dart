@@ -329,6 +329,7 @@ class _HomeShellState extends State<HomeShell> {
         error: _error,
         onRefresh: _loadFeed,
         onLike: _toggleLike,
+        onComment: _showComments,
         onCreate: () => setState(() => _selectedIndex = 2),
       ),
       const DiscoverPage(),
@@ -425,6 +426,15 @@ class _HomeShellState extends State<HomeShell> {
       );
     }
   }
+
+  Future<void> _showComments(Post post) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CommentsSheet(post: post, repository: _repository),
+    );
+  }
 }
 
 class FeedPage extends StatelessWidget {
@@ -435,6 +445,7 @@ class FeedPage extends StatelessWidget {
     required this.error,
     required this.onRefresh,
     required this.onLike,
+    required this.onComment,
     required this.onCreate,
   });
   final List<Post> posts;
@@ -442,6 +453,7 @@ class FeedPage extends StatelessWidget {
   final String? error;
   final Future<void> Function() onRefresh;
   final Future<void> Function(Post post) onLike;
+  final Future<void> Function(Post post) onComment;
   final VoidCallback onCreate;
 
   @override
@@ -505,8 +517,11 @@ class FeedPage extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               sliver: SliverList.builder(
                 itemCount: posts.length,
-                itemBuilder: (context, index) =>
-                    PostCard(post: posts[index], onLike: onLike),
+                itemBuilder: (context, index) => PostCard(
+                  post: posts[index],
+                  onLike: onLike,
+                  onComment: onComment,
+                ),
               ),
             ),
         ],
@@ -684,9 +699,15 @@ class ComposerCard extends StatelessWidget {
 }
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post, required this.onLike});
+  const PostCard({
+    super.key,
+    required this.post,
+    required this.onLike,
+    required this.onComment,
+  });
   final Post post;
   final Future<void> Function(Post post) onLike;
+  final Future<void> Function(Post post) onComment;
 
   @override
   Widget build(BuildContext context) {
@@ -826,9 +847,7 @@ class PostCard extends StatelessWidget {
                   child: _PostAction(
                     icon: Icons.mode_comment_outlined,
                     label: 'Comentar',
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Comentarios próximamente')),
-                    ),
+                    onTap: () => onComment(post),
                   ),
                 ),
                 Expanded(
@@ -845,6 +864,193 @@ class PostCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class CommentsSheet extends StatefulWidget {
+  const CommentsSheet({
+    super.key,
+    required this.post,
+    required this.repository,
+  });
+  final Post post;
+  final SocialRepository repository;
+
+  @override
+  State<CommentsSheet> createState() => _CommentsSheetState();
+}
+
+class _CommentsSheetState extends State<CommentsSheet> {
+  final _controller = TextEditingController();
+  List<Map<String, dynamic>> _comments = [];
+  bool _loading = true;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return FractionallySizedBox(
+      heightFactor: .82,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, bottom + 12),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 42,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFDCE1EA),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Comentarios',
+              style: Theme.of(context).textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFFF6B5F),
+                      ),
+                    )
+                  : _comments.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      title: 'Sé la primera persona en comentar',
+                      message: 'Comparte tu opinión sobre esta publicación.',
+                    )
+                  : ListView.separated(
+                      itemCount: _comments.length,
+                      separatorBuilder: (_, _) => const Divider(height: 20),
+                      itemBuilder: (_, index) =>
+                          _CommentTile(data: _comments[index]),
+                    ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    decoration: const InputDecoration(
+                      hintText: 'Escribe un comentario...',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _sending ? null : _send,
+                  icon: const Icon(
+                    Icons.send_rounded,
+                    color: Color(0xFFFF6B5F),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await widget.repository.fetchComments(widget.post.id);
+      if (mounted) {
+        setState(() {
+          _comments = result;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final body = _controller.text.trim();
+    if (body.isEmpty) return;
+    setState(() => _sending = true);
+    try {
+      await widget.repository.addComment(postId: widget.post.id, body: body);
+      _controller.clear();
+      await _load();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No pudimos guardar el comentario.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+}
+
+class _CommentTile extends StatelessWidget {
+  const _CommentTile({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = data['profiles'] is Map<String, dynamic>
+        ? data['profiles'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final name = (profile['display_name'] as String?)?.trim().isNotEmpty == true
+        ? profile['display_name'] as String
+        : (profile['username'] as String? ?? 'Usuario');
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const CircleAvatar(
+          radius: 18,
+          child: Icon(Icons.person_rounded, size: 19, color: Color(0xFF8290A8)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF172943),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                data['body']?.toString() ?? '',
+                style: const TextStyle(color: Color(0xFF53627A), height: 1.3),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1006,8 +1212,26 @@ class _CreatePageState extends State<CreatePage> {
           .showSnackBar(SnackBar(content: Text(message)));
 }
 
-class DiscoverPage extends StatelessWidget {
+class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
+
+  @override
+  State<DiscoverPage> createState() => _DiscoverPageState();
+}
+
+class _DiscoverPageState extends State<DiscoverPage> {
+  final _query = TextEditingController();
+  final _repository = const SocialRepository();
+  List<Map<String, dynamic>> _results = [];
+  final Set<String> _following = {};
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => CustomScrollView(
     slivers: [
@@ -1019,9 +1243,16 @@ class DiscoverPage extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
           child: TextField(
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
-              hintText: 'Busca personas, temas o lugares',
+            controller: _query,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _search(),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search_rounded),
+              hintText: 'Busca personas',
+              suffixIcon: IconButton(
+                onPressed: _search,
+                icon: const Icon(Icons.arrow_forward_rounded),
+              ),
             ),
           ),
         ),
@@ -1063,30 +1294,227 @@ class DiscoverPage extends StatelessWidget {
                         .toList(),
               ),
               const SizedBox(height: 28),
-              const Text(
-                'La búsqueda y las sugerencias se conectarán al feed real.',
-                style: TextStyle(color: Color(0xFF7B8AA1)),
-              ),
+              if (_loading)
+                const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFF6B5F)),
+                ),
+              if (!_loading &&
+                  _query.text.trim().isNotEmpty &&
+                  _results.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 18),
+                  child: Text(
+                    'No encontramos perfiles con esa búsqueda.',
+                    style: TextStyle(color: Color(0xFF7B8AA1)),
+                  ),
+                ),
+              if (_results.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                const Text(
+                  'Personas',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF172943),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ..._results.map(_profileTile),
+              ],
             ],
           ),
         ),
       ),
     ],
   );
+
+  Widget _profileTile(Map<String, dynamic> profile) {
+    final id = profile['id'].toString();
+    final name = (profile['display_name'] as String?)?.trim().isNotEmpty == true
+        ? profile['display_name'] as String
+        : (profile['username'] as String? ?? 'Usuario');
+    final isFollowing = _following.contains(id);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 22,
+            child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF172943),
+                  ),
+                ),
+                Text(
+                  '@${profile['username'] ?? 'usuario'}',
+                  style: const TextStyle(
+                    color: Color(0xFF8B98AD),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          OutlinedButton(
+            onPressed: () => _toggleFollow(id, isFollowing),
+            child: Text(isFollowing ? 'Siguiendo' : 'Seguir'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _search() async {
+    if (_query.text.trim().isEmpty) return;
+    setState(() => _loading = true);
+    try {
+      final result = await _repository.searchProfiles(_query.text);
+      if (mounted) {
+        setState(() {
+          _results = result;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _results = [];
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleFollow(String id, bool isFollowing) async {
+    try {
+      if (isFollowing) {
+        await _repository.unfollow(id);
+        if (mounted) setState(() => _following.remove(id));
+      } else {
+        await _repository.follow(id);
+        if (mounted) setState(() => _following.add(id));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No pudimos actualizar el seguimiento.'),
+          ),
+        );
+      }
+    }
+  }
 }
 
-class NotificationsPage extends StatelessWidget {
+class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
+
   @override
-  Widget build(BuildContext context) => const Scaffold(
-    body: Center(
-      child: EmptyState(
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  final _repository = const SocialRepository();
+  List<Map<String, dynamic>> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget body;
+    if (_loading) {
+      body = const Center(
+        child: CircularProgressIndicator(color: Color(0xFFFF6B5F)),
+      );
+    } else if (_items.isEmpty) {
+      body = const EmptyState(
         icon: Icons.notifications_none_rounded,
-        title: 'Notificaciones',
+        title: 'Sin notificaciones',
         message: 'Las interacciones aparecerán aquí cuando haya actividad en tu cuenta.',
+      );
+    } else {
+      body = RefreshIndicator(
+        onRefresh: _load,
+        child: ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: _items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (_, index) => _notificationTile(_items[index]),
+        ),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Notificaciones',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
       ),
-    ),
-  );
+      body: body,
+    );
+  }
+
+  Widget _notificationTile(Map<String, dynamic> item) {
+    final actor = item['profiles'] is Map<String, dynamic>
+        ? item['profiles'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final name = (actor['display_name'] as String?)?.trim().isNotEmpty == true
+        ? actor['display_name'] as String
+        : (actor['username'] as String? ?? 'Alguien');
+    final kind = item['kind']?.toString();
+    final text = switch (kind) {
+      'like' => '$name indicó que le gusta tu publicación.',
+      'comment' => '$name comentó tu publicación.',
+      'follow' => '$name comenzó a seguirte.',
+      _ => '$name interactuó contigo.',
+    };
+    return ListTile(
+      tileColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      leading: const CircleAvatar(
+        child: Icon(Icons.person_rounded, color: Color(0xFF8290A8)),
+      ),
+      title: Text(text, style: const TextStyle(color: Color(0xFF35445D))),
+      subtitle: Text(
+        item['read_at'] == null ? 'Nueva' : 'Vista',
+        style: const TextStyle(color: Color(0xFF8B98AD)),
+      ),
+    );
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await _repository.fetchNotifications();
+      await _repository.markNotificationsRead();
+      if (mounted) {
+        setState(() {
+          _items = result;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 }
 
 class ProfilePage extends StatelessWidget {
