@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/supabase_service.dart';
 import 'data/auth_service.dart';
@@ -49,8 +51,31 @@ class CloUpBiApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  User? _user;
+  StreamSubscription<AuthState>? _authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _user = SupabaseService.currentUser;
+    _authSubscription = const AuthService().authStateChanges.listen((state) {
+      if (mounted) setState(() => _user = state.session?.user);
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,10 +85,15 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder(
       stream: const AuthService().authStateChanges,
       builder: (context, snapshot) {
-        if (SupabaseService.currentUser == null) return const AuthPage();
+        if (_user == null) return AuthPage(onSignedIn: _refreshUser);
         return const HomeShell();
       },
     );
+  }
+
+  void _refreshUser() {
+    final user = SupabaseService.currentUser;
+    if (mounted && user != null) setState(() => _user = user);
   }
 }
 
@@ -107,7 +137,8 @@ class ConfigurationNotice extends StatelessWidget {
 }
 
 class AuthPage extends StatefulWidget {
-  const AuthPage({super.key});
+  const AuthPage({super.key, this.onSignedIn});
+  final VoidCallback? onSignedIn;
 
   @override
   State<AuthPage> createState() => _AuthPageState();
@@ -314,6 +345,7 @@ class _AuthPageState extends State<AuthPage> {
         }
       } else {
         await _auth.signIn(identifier: identifier, password: password);
+        widget.onSignedIn?.call();
       }
     } catch (error) {
       if (mounted) _show(_friendlyAuthError(error));
@@ -440,6 +472,10 @@ class _HomeShellState extends State<HomeShell> {
   Future<void> _bootstrapAccount() async {
     try {
       await _repository.ensureCurrentProfile();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'No pudimos sincronizar tu perfil.');
+      }
     } finally {
       await _loadFeed();
     }
@@ -459,11 +495,13 @@ class _HomeShellState extends State<HomeShell> {
         _stories = storyRows.map(Story.fromMap).toList();
         _loading = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'No pudimos cargar el feed. Intentá actualizar de nuevo.';
+        _error = error.toString().contains('iniciar sesión')
+            ? 'Tu sesión no está activa. Volvé a iniciar sesión.'
+            : 'No pudimos cargar el feed. Intentá actualizar de nuevo.';
       });
     }
   }

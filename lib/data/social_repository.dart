@@ -25,7 +25,9 @@ class SocialRepository {
 
   Future<List<Map<String, dynamic>>> fetchFeed({int limit = 20}) async {
     final client = SupabaseService.client;
-    if (client == null) return const [];
+    if (client == null || SupabaseService.currentUser == null) {
+      throw StateError('Debes iniciar sesión para cargar el feed.');
+    }
 
     final response = await client
         .from('posts')
@@ -88,7 +90,9 @@ class SocialRepository {
 
   Future<List<Map<String, dynamic>>> fetchStories() async {
     final client = SupabaseService.client;
-    if (client == null) return const [];
+    if (client == null || SupabaseService.currentUser == null) {
+      throw StateError('Debes iniciar sesión para cargar las Stories.');
+    }
     final response = await client
         .from('stories')
         .select(
