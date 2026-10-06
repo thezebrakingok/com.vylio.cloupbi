@@ -341,6 +341,7 @@ class _HomeShellState extends State<HomeShell> {
   bool _loading = true;
   String? _error;
   List<Post> _posts = [];
+  List<Story> _stories = [];
 
   @override
   void initState() {
@@ -358,6 +359,10 @@ class _HomeShellState extends State<HomeShell> {
         onRefresh: _loadFeed,
         onLike: _toggleLike,
         onComment: _showComments,
+        stories: _stories,
+        onCreateStory: _showStoryComposer,
+        onEditPost: _editPost,
+        onDeletePost: _deletePost,
         onCreate: () => setState(() => _selectedIndex = 2),
       ),
       const DiscoverPage(),
@@ -410,10 +415,12 @@ class _HomeShellState extends State<HomeShell> {
       _error = null;
     });
     try {
-      final rows = await _repository.fetchFeed();
+      final feedRows = await _repository.fetchFeed();
+      final storyRows = await _repository.fetchStories();
       if (!mounted) return;
       setState(() {
-        _posts = rows.map(Post.fromMap).toList();
+        _posts = feedRows.map(Post.fromMap).toList();
+        _stories = storyRows.map(Story.fromMap).toList();
         _loading = false;
       });
     } catch (_) {
@@ -463,6 +470,72 @@ class _HomeShellState extends State<HomeShell> {
       builder: (_) => CommentsSheet(post: post, repository: _repository),
     );
   }
+
+  Future<void> _showStoryComposer() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => StoryComposer(repository: _repository),
+    );
+    await _loadFeed();
+  }
+
+  Future<void> _editPost(Post post) async {
+    final controller = TextEditingController(text: post.text);
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Editar publicación'),
+        content: TextField(controller: controller, maxLines: 5, maxLength: 500),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (save == true && controller.text.trim().isNotEmpty) {
+      await _repository.updatePost(
+        postId: post.id,
+        body: controller.text,
+        tag: post.tag,
+      );
+      await _loadFeed();
+    }
+    controller.dispose();
+  }
+
+  Future<void> _deletePost(Post post) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar publicación'),
+        content: const Text('Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFD64545),
+            ),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await _repository.deletePost(post.id);
+      await _loadFeed();
+    }
+  }
 }
 
 class FeedPage extends StatelessWidget {
@@ -474,6 +547,10 @@ class FeedPage extends StatelessWidget {
     required this.onRefresh,
     required this.onLike,
     required this.onComment,
+    required this.stories,
+    required this.onCreateStory,
+    required this.onEditPost,
+    required this.onDeletePost,
     required this.onCreate,
   });
   final List<Post> posts;
@@ -482,6 +559,10 @@ class FeedPage extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(Post post) onLike;
   final Future<void> Function(Post post) onComment;
+  final List<Story> stories;
+  final VoidCallback onCreateStory;
+  final Future<void> Function(Post post) onEditPost;
+  final Future<void> Function(Post post) onDeletePost;
   final VoidCallback onCreate;
 
   @override
@@ -509,6 +590,9 @@ class FeedPage extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          SliverToBoxAdapter(
+            child: StoriesRow(stories: stories, onCreate: onCreateStory),
           ),
           SliverToBoxAdapter(child: ComposerCard(onTap: onCreate)),
           if (loading)
@@ -548,6 +632,8 @@ class FeedPage extends StatelessWidget {
                   post: posts[index],
                   onLike: onLike,
                   onComment: onComment,
+                  onEdit: onEditPost,
+                  onDelete: onDeletePost,
                 ),
               ),
             ),
@@ -626,6 +712,180 @@ class BrandMark extends StatelessWidget {
   );
 }
 
+class StoriesRow extends StatelessWidget {
+  const StoriesRow({super.key, required this.stories, required this.onCreate});
+  final List<Story> stories;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 116,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+        scrollDirection: Axis.horizontal,
+        itemCount: stories.length + 1,
+        separatorBuilder: (_, _) => const SizedBox(width: 16),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return GestureDetector(
+              onTap: onCreate,
+              child: const Column(
+                children: [
+                  CircleAvatar(
+                    radius: 31,
+                    backgroundColor: Color(0xFFE5E9F2),
+                    child: Icon(
+                      Icons.add_rounded,
+                      size: 30,
+                      color: Color(0xFF5C67F2),
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Tu historia',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            );
+          }
+          final story = stories[index - 1];
+          return GestureDetector(
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => Dialog(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Image.network(
+                    story.mediaUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const SizedBox(
+                      height: 300,
+                      child: Icon(Icons.broken_image_rounded),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 31,
+                  backgroundImage: NetworkImage(story.mediaUrl),
+                  onBackgroundImageError: (_, _) {},
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: 68,
+                  child: Text(
+                    story.author,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class StoryComposer extends StatefulWidget {
+  const StoryComposer({super.key, required this.repository});
+  final SocialRepository repository;
+
+  @override
+  State<StoryComposer> createState() => _StoryComposerState();
+}
+
+class _StoryComposerState extends State<StoryComposer> {
+  final _picker = ImagePicker();
+  XFile? _image;
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Crear Story',
+            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 16),
+          if (_image != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Image.file(
+                File(_image!.path),
+                height: 220,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: _busy ? null : _pick,
+            icon: const Icon(Icons.photo_library_outlined),
+            label: Text(_image == null ? 'Elegir imagen' : 'Cambiar imagen'),
+          ),
+          const SizedBox(height: 8),
+          if (_image != null)
+            FilledButton(
+              onPressed: _busy ? null : _publish,
+              child: _busy
+                  ? const CircularProgressIndicator()
+                  : const Text('Publicar Story'),
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+
+  Future<void> _pick() async {
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (mounted && image != null) setState(() => _image = image);
+  }
+
+  Future<void> _publish() async {
+    if (_image == null) return;
+    setState(() => _busy = true);
+    try {
+      final bytes = await _image!.readAsBytes();
+      final extension = _image!.name.contains('.')
+          ? _image!.name.split('.').last
+          : 'jpg';
+      final url = await widget.repository.uploadPostImage(
+        bytes: bytes,
+        extension: extension,
+      );
+      await widget.repository.createStory(mediaUrl: url);
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No pudimos publicar la Story.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
 class ComposerCard extends StatelessWidget {
   const ComposerCard({super.key, required this.onTap});
   final VoidCallback onTap;
@@ -677,10 +937,14 @@ class PostCard extends StatelessWidget {
     required this.post,
     required this.onLike,
     required this.onComment,
+    required this.onEdit,
+    required this.onDelete,
   });
   final Post post;
   final Future<void> Function(Post post) onLike;
   final Future<void> Function(Post post) onComment;
+  final Future<void> Function(Post post) onEdit;
+  final Future<void> Function(Post post) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -731,13 +995,19 @@ class PostCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(
-                    Icons.more_horiz_rounded,
-                    color: Color(0xFF8B98AD),
+                if (post.authorId == SupabaseService.currentUser?.id)
+                  PopupMenuButton<String>(
+                    onSelected: (value) =>
+                        value == 'edit' ? onEdit(post) : onDelete(post),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Editar')),
+                      PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                    ],
+                    icon: const Icon(
+                      Icons.more_horiz_rounded,
+                      color: Color(0xFF8B98AD),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1498,14 +1768,31 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 }
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key, required this.onSignOut});
   final Future<void> Function() onSignOut;
 
   @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final _repository = const SocialRepository();
+  Map<String, dynamic>? _profile;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = SupabaseService.currentUser;
-    final displayName = user?.userMetadata?['display_name'] as String?;
+    final name = (_profile?['display_name'] as String?)?.trim();
+    final username = _profile?['username'] as String?;
+    final bio = _profile?['bio'] as String?;
+    final avatarUrl = _profile?['avatar_url'] as String?;
     return CustomScrollView(
       slivers: [
         SliverAppBar(
@@ -1516,7 +1803,7 @@ class ProfilePage extends StatelessWidget {
           ),
           actions: [
             IconButton(
-              onPressed: onSignOut,
+              onPressed: widget.onSignOut,
               icon: const Icon(Icons.logout_rounded),
             ),
           ],
@@ -1526,33 +1813,55 @@ class ProfilePage extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
             child: Column(
               children: [
-                const CircleAvatar(
-                  radius: 45,
-                  child: Icon(
-                    Icons.person_rounded,
-                    size: 42,
-                    color: Color(0xFF8290A8),
-                  ),
-                ),
+                avatarUrl?.isNotEmpty == true
+                    ? CircleAvatar(
+                        radius: 45,
+                        backgroundImage: NetworkImage(avatarUrl!),
+                      )
+                    : const CircleAvatar(
+                        radius: 45,
+                        child: Icon(
+                          Icons.person_rounded,
+                          size: 42,
+                          color: Color(0xFF8290A8),
+                        ),
+                      ),
                 const SizedBox(height: 12),
                 Text(
-                  displayName?.isNotEmpty == true ? displayName! : 'CloUP BI',
+                  name?.isNotEmpty == true ? name! : 'CloUP BI',
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF172943),
                   ),
                 ),
+                if (username != null)
+                  Text(
+                    '@$username',
+                    style: const TextStyle(
+                      color: Color(0xFF5C67F2),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                const SizedBox(height: 5),
+                Text(
+                  bio?.isNotEmpty == true ? bio! : 'Sin biografía todavía.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFF8B98AD)),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   user?.email ?? '',
-                  style: const TextStyle(color: Color(0xFF8B98AD)),
+                  style: const TextStyle(
+                    color: Color(0xFF8B98AD),
+                    fontSize: 12,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
-                    onPressed: () {},
+                    onPressed: _edit,
                     child: const Text('Editar perfil'),
                   ),
                 ),
@@ -1562,6 +1871,166 @@ class ProfilePage extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _load() async {
+    final profile = await _repository.fetchMyProfile();
+    if (mounted) setState(() => _profile = profile);
+  }
+
+  Future<void> _edit() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => EditProfileSheet(
+        repository: _repository,
+        profile: _profile ?? const {},
+      ),
+    );
+    await _load();
+  }
+}
+
+class EditProfileSheet extends StatefulWidget {
+  const EditProfileSheet({
+    super.key,
+    required this.repository,
+    required this.profile,
+  });
+  final SocialRepository repository;
+  final Map<String, dynamic> profile;
+
+  @override
+  State<EditProfileSheet> createState() => _EditProfileSheetState();
+}
+
+class _EditProfileSheetState extends State<EditProfileSheet> {
+  late final TextEditingController _name;
+  late final TextEditingController _username;
+  late final TextEditingController _bio;
+  final _picker = ImagePicker();
+  XFile? _avatar;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(
+      text: widget.profile['display_name']?.toString() ?? '',
+    );
+    _username = TextEditingController(
+      text: widget.profile['username']?.toString() ?? '',
+    );
+    _bio = TextEditingController(text: widget.profile['bio']?.toString() ?? '');
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _username.dispose();
+    _bio.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, bottom + 20),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Editar perfil',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 18),
+            if (_avatar != null)
+              ClipOval(
+                child: Image.file(
+                  File(_avatar!.path),
+                  width: 86,
+                  height: 86,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            TextButton.icon(
+              onPressed: _pickAvatar,
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Cambiar avatar'),
+            ),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Nombre visible'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _username,
+              decoration: const InputDecoration(labelText: 'Nombre de usuario'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _bio,
+              maxLength: 160,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Biografía'),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _busy ? null : _save,
+                child: _busy
+                    ? const CircularProgressIndicator()
+                    : const Text('Guardar cambios'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAvatar() async {
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (mounted && image != null) setState(() => _avatar = image);
+  }
+
+  Future<void> _save() async {
+    if (_username.text.trim().length < 3) return;
+    setState(() => _busy = true);
+    try {
+      String? avatarUrl;
+      if (_avatar != null) {
+        final bytes = await _avatar!.readAsBytes();
+        final extension = _avatar!.name.contains('.')
+            ? _avatar!.name.split('.').last
+            : 'jpg';
+        avatarUrl = await widget.repository.uploadPostImage(
+          bytes: bytes,
+          extension: extension,
+        );
+      }
+      await widget.repository.updateProfile(
+        displayName: _name.text,
+        username: _username.text,
+        bio: _bio.text,
+        avatarUrl: avatarUrl,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No pudimos guardar tu perfil.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }
 
@@ -1616,5 +2085,25 @@ class Post {
     if (difference.inHours < 1) return '${difference.inMinutes} min';
     if (difference.inDays < 1) return '${difference.inHours} h';
     return '${difference.inDays} d';
+  }
+}
+
+class Story {
+  const Story({required this.id, required this.mediaUrl, required this.author});
+  final String id;
+  final String mediaUrl;
+  final String author;
+
+  factory Story.fromMap(Map<String, dynamic> map) {
+    final profile = map['profiles'] is Map<String, dynamic>
+        ? map['profiles'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    return Story(
+      id: map['id'].toString(),
+      mediaUrl: map['media_url']?.toString() ?? '',
+      author: (profile['display_name'] as String?)?.trim().isNotEmpty == true
+          ? profile['display_name'] as String
+          : (profile['username'] as String? ?? 'Usuario'),
+    );
   }
 }
