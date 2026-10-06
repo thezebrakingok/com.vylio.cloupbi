@@ -19,11 +19,20 @@ class AuthService {
   }) async {
     final client = SupabaseService.client;
     if (client == null) throw StateError('Supabase no está configurado.');
+    final normalizedUsername = username.trim().toLowerCase();
+    final normalizedEmail = email.trim().toLowerCase();
+    final available = await client.rpc<bool>(
+      'is_username_available',
+      params: {'candidate': normalizedUsername},
+    );
+    if (available != true) {
+      throw StateError('username_taken');
+    }
     return client.auth.signUp(
-      email: email.trim(),
+      email: normalizedEmail,
       password: password,
       data: {
-        'username': username.trim().toLowerCase(),
+        'username': normalizedUsername,
         if (displayName != null && displayName.trim().isNotEmpty)
           'display_name': displayName.trim(),
       },

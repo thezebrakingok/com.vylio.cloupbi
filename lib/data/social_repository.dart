@@ -7,6 +7,22 @@ import '../core/supabase_service.dart';
 class SocialRepository {
   const SocialRepository();
 
+  Future<void> ensureCurrentProfile() async {
+    final client = SupabaseService.client;
+    if (client == null || SupabaseService.currentUser == null) return;
+    await client.rpc<void>('ensure_current_profile');
+  }
+
+  Future<bool> isUsernameAvailable(String username) async {
+    final client = SupabaseService.client;
+    if (client == null) return false;
+    final result = await client.rpc<bool>(
+      'is_username_available',
+      params: {'candidate': username.trim().toLowerCase()},
+    );
+    return result == true;
+  }
+
   Future<List<Map<String, dynamic>>> fetchFeed({int limit = 20}) async {
     final client = SupabaseService.client;
     if (client == null) return const [];
@@ -129,11 +145,17 @@ class SocialRepository {
     if (client == null || user == null) {
       throw StateError('Debes iniciar sesión.');
     }
+    final current = await fetchMyProfile();
+    final normalizedUsername = username.trim().toLowerCase();
+    if (normalizedUsername != current?['username'] &&
+        !await isUsernameAvailable(normalizedUsername)) {
+      throw StateError('username_taken');
+    }
     await client
         .from('profiles')
         .update({
           'display_name': displayName.trim(),
-          'username': username.trim().toLowerCase(),
+          'username': normalizedUsername,
           'bio': bio.trim(),
           ...?avatarUrl == null ? null : {'avatar_url': avatarUrl},
         })

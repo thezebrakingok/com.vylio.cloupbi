@@ -280,6 +280,7 @@ class _AuthPageState extends State<AuthPage> {
     final identifier = _email.text.trim();
     if (identifier.isEmpty ||
         password.length < 6 ||
+        (_isSignUp && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) ||
         (_isSignUp &&
             (username.length < 3 ||
                 !RegExp(r'^[a-z0-9_.]+$').hasMatch(username)))) {
@@ -299,8 +300,17 @@ class _AuthPageState extends State<AuthPage> {
           password: password,
           displayName: _name.text,
         );
+        if (response.user == null) {
+          throw StateError('signup_failed');
+        }
         if (mounted && response.session == null) {
-          _show('Cuenta creada. Revisá tu correo para confirmar el acceso.');
+          setState(() {
+            _isSignUp = false;
+            _password.clear();
+          });
+          _show(
+            'Cuenta creada. Confirmá tu correo y luego ingresá con usuario o correo.',
+          );
         }
       } else {
         await _auth.signIn(identifier: identifier, password: password);
@@ -314,11 +324,27 @@ class _AuthPageState extends State<AuthPage> {
 
   String _friendlyAuthError(Object error) {
     final message = error.toString();
+    if (message.contains('username_taken')) {
+      return 'Ese nombre de usuario ya existe o no cumple el formato permitido.';
+    }
+    if (message.contains('signup_failed')) {
+      return 'Supabase no devolvió una cuenta válida. Revisá el correo y volvé a intentar.';
+    }
     if (message.contains('Invalid login credentials')) {
       return 'Correo o contraseña incorrectos.';
     }
-    if (message.contains('already registered')) {
+    if (message.contains('already registered') ||
+        message.contains('User already registered')) {
       return 'Ese correo ya está registrado.';
+    }
+    if (message.contains('Database error saving new user')) {
+      return 'No se pudo crear el perfil. Probá con otro nombre de usuario.';
+    }
+    if (message.contains('Invalid email')) {
+      return 'El correo electrónico no es válido.';
+    }
+    if (message.contains('Password should be at least')) {
+      return 'La contraseña debe tener al menos 6 caracteres.';
     }
     return 'No pudimos completar la operación. Revisá tu conexión e intentá de nuevo.';
   }
@@ -346,7 +372,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _loadFeed();
+    _bootstrapAccount();
   }
 
   @override
@@ -407,6 +433,14 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ),
     );
+  }
+
+  Future<void> _bootstrapAccount() async {
+    try {
+      await _repository.ensureCurrentProfile();
+    } finally {
+      await _loadFeed();
+    }
   }
 
   Future<void> _loadFeed() async {
@@ -1874,6 +1908,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _load() async {
+    await _repository.ensureCurrentProfile();
     final profile = await _repository.fetchMyProfile();
     if (mounted) setState(() => _profile = profile);
   }
@@ -2022,11 +2057,13 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
         avatarUrl: avatarUrl,
       );
       if (mounted) Navigator.pop(context);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No pudimos guardar tu perfil.')),
-        );
+        final message = error.toString().contains('username_taken')
+            ? 'Ese nombre de usuario ya está ocupado.'
+            : 'No pudimos guardar tu perfil.';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
