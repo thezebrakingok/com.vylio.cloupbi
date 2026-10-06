@@ -278,6 +278,14 @@ class _AuthPageState extends State<AuthPage> {
                           : Text(_isSignUp ? 'Crear cuenta' : 'Iniciar sesión'),
                     ),
                   ),
+                  if (!_isSignUp)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _busy ? null : _resetPassword,
+                        child: const Text('Olvidé mi contraseña'),
+                      ),
+                    ),
                   const SizedBox(height: 16),
                   Center(
                     child: TextButton(
@@ -346,6 +354,25 @@ class _AuthPageState extends State<AuthPage> {
       } else {
         await _auth.signIn(identifier: identifier, password: password);
         widget.onSignedIn?.call();
+      }
+    } catch (error) {
+      if (mounted) _show(_friendlyAuthError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    final identifier = _email.text.trim();
+    if (identifier.isEmpty) {
+      _show('Ingresá tu correo o usuario para recuperar la contraseña.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _auth.resetPassword(identifier);
+      if (mounted) {
+        _show('Te enviamos un enlace para crear una contraseña nueva.');
       }
     } catch (error) {
       if (mounted) _show(_friendlyAuthError(error));

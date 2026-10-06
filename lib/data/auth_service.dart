@@ -62,4 +62,21 @@ class AuthService {
   Future<void> signOut() async {
     await SupabaseService.client?.auth.signOut();
   }
+
+  Future<void> resetPassword(String identifier) async {
+    final client = SupabaseService.client;
+    if (client == null) throw StateError('Supabase no está configurado.');
+    var email = identifier.trim().toLowerCase();
+    if (!email.contains('@')) {
+      final resolved = await client.rpc<String?>(
+        'resolve_login_email',
+        params: {'identifier': email},
+      );
+      if (resolved == null || resolved.isEmpty) {
+        throw const AuthException('Invalid login credentials');
+      }
+      email = resolved;
+    }
+    await client.auth.resetPasswordForEmail(email);
+  }
 }
